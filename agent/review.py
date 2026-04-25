@@ -1,14 +1,14 @@
-"""PR architecture reviewer using the Anthropic API."""
+"""PR architecture reviewer using the Google Gemini API."""
 
 import json
 import os
 import sys
 
-import anthropic
+import google.generativeai as genai
 import requests
 
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 PR_NUMBER = os.environ["PR_NUMBER"]
 REPO = os.environ["REPO"]
 COVERAGE = os.environ.get("COVERAGE", "unknown")
@@ -83,8 +83,12 @@ def fetch_changed_java_files() -> list[str]:
     return [f["filename"] for f in files if f["filename"].endswith(".java")]
 
 
-def call_anthropic(diff: str, java_files: list[str]) -> dict:
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+def call_gemini(diff: str, java_files: list[str]) -> dict:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",
+        system_instruction=SYSTEM_PROMPT,
+    )
 
     user_content = (
         f"PR #{PR_NUMBER} in {REPO}\n\n"
@@ -96,15 +100,9 @@ def call_anthropic(diff: str, java_files: list[str]) -> dict:
         "Analyze the diff and return ONLY the JSON object described in the system prompt."
     )
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-    )
+    response = model.generate_content(user_content)
+    raw = response.text.strip()
 
-    raw = message.content[0].text.strip()
-    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -153,8 +151,8 @@ def main() -> int:
     java_files = fetch_changed_java_files()
     print(f"Changed Java files: {len(java_files)}")
 
-    print("Calling Anthropic API...")
-    review = call_anthropic(diff, java_files)
+    print("Calling Gemini API...")
+    review = call_gemini(diff, java_files)
 
     print("Review result:")
     print(json.dumps(review, indent=2))
